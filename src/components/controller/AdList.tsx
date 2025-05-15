@@ -65,33 +65,50 @@ const AdList: React.FC = () => {
       // First, get the ad details
       const { data: ad, error: fetchError } = await supabase
         .from('ads')
-        .select('*')  // Select all fields to get complete ad info
+        .select('*')
         .eq('id', id)
         .single();
 
       if (fetchError) {
-        console.error('Error fetching ad details:', fetchError);
-        throw fetchError;
+        const errorMessage = `Fetch Error: ${fetchError.message}, Code: ${fetchError.code}`;
+        console.error(errorMessage, fetchError);
+        toast.error(errorMessage);
+        return;
       }
 
+      if (!ad) {
+        toast.error('Ad not found');
+        return;
+      }
+
+      console.log('Ad to delete:', ad); // Log the ad data
+
       // Delete from storage if URL exists
-      if (ad?.url) {
+      if (ad.url) {
         try {
-          // Extract filename from the full URL
-          const urlParts = ad.url.split('/');
-          const fileName = urlParts[urlParts.length - 1];
+          const fileUrl = new URL(ad.url);
+          const pathSegments = fileUrl.pathname.split('/');
+          const fileName = pathSegments[pathSegments.length - 1];
+          const bucketPath = `ads/${fileName}`; // Include the folder name
+
+          console.log('Attempting to delete file:', bucketPath);
           
-          console.log('Attempting to delete file:', fileName);
-          
-          const { error: storageError } = await supabase.storage
+          const { data: storageData, error: storageError } = await supabase.storage
             .from('ads')
-            .remove([fileName]);  // Remove the 'ads/' prefix
+            .remove([bucketPath]);
 
           if (storageError) {
-            console.error('Storage deletion error:', storageError);
+            const storageErrorMsg = `Storage Error: ${storageError.message}, Code: ${storageError.name}`;
+            console.error(storageErrorMsg, storageError);
+            toast.error(storageErrorMsg);
+            // Continue with database deletion even if storage fails
+          } else {
+            console.log('Storage deletion result:', storageData);
           }
-        } catch (storageError) {
-          console.error('Storage deletion failed:', storageError);
+        } catch (storageError: any) {
+          const errorMsg = `Storage Error: ${storageError?.message || 'Unknown storage error'}`;
+          console.error(errorMsg, storageError);
+          toast.error(errorMsg);
         }
       }
 
@@ -102,21 +119,21 @@ const AdList: React.FC = () => {
         .eq('id', id);
 
       if (deleteError) {
-        console.error('Database deletion error:', deleteError);
-        throw deleteError;
+        const dbErrorMsg = `Database Error: ${deleteError.message}, Code: ${deleteError.code}`;
+        console.error(dbErrorMsg, deleteError);
+        toast.error(dbErrorMsg);
+        return;
       }
 
       // Update local state only after successful deletion
       setAds(prevAds => prevAds.filter(ad => ad.id !== id));
       toast.success('Ad deleted successfully');
 
-    } catch (error) {
-      console.error('Delete operation failed:', error);
-      if (error instanceof Error) {
-        toast.error(`Failed to delete ad: ${error.message}`);
-      } else {
-        toast.error('Failed to delete ad. Please try again.');
-      }
+    } catch (error: any) {
+      const finalError = `Delete failed: ${error?.message || error?.error_description || 'Unknown error'}`;
+      console.error('Full error details:', error);
+      console.error('Error stack:', error?.stack);
+      toast.error(finalError);
     } finally {
       setIsLoading(false);
     }
