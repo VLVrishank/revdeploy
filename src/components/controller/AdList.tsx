@@ -62,78 +62,58 @@ const AdList: React.FC = () => {
     try {
       setIsLoading(true);
 
-      // First, get the ad details
-      const { data: ad, error: fetchError } = await supabase
-        .from('ads')
-        .select('*')
-        .eq('id', id)
-        .single();
-
-      if (fetchError) {
-        const errorMessage = `Fetch Error: ${fetchError.message}, Code: ${fetchError.code}`;
-        console.error(errorMessage, fetchError);
-        toast.error(errorMessage);
+      // Check Supabase connection first
+      const { error: healthError } = await supabase.from('ads').select('count');
+      if (healthError) {
+        toast.error('Database connection error. Please check your internet connection.');
         return;
       }
 
-      if (!ad) {
-        toast.error('Ad not found');
-        return;
-      }
-
-      console.log('Ad to delete:', ad); // Log the ad data
-
-      // Delete from storage if URL exists
-      if (ad.url) {
-        try {
-          const fileUrl = new URL(ad.url);
-          const pathSegments = fileUrl.pathname.split('/');
-          const fileName = pathSegments[pathSegments.length - 1];
-          const bucketPath = `ads/${fileName}`; // Include the folder name
-
-          console.log('Attempting to delete file:', bucketPath);
-          
-          const { data: storageData, error: storageError } = await supabase.storage
-            .from('ads')
-            .remove([bucketPath]);
-
-          if (storageError) {
-            const storageErrorMsg = `Storage Error: ${storageError.message}, Code: ${storageError.name}`;
-            console.error(storageErrorMsg, storageError);
-            toast.error(storageErrorMsg);
-            // Continue with database deletion even if storage fails
-          } else {
-            console.log('Storage deletion result:', storageData);
-          }
-        } catch (storageError: any) {
-          const errorMsg = `Storage Error: ${storageError?.message || 'Unknown storage error'}`;
-          console.error(errorMsg, storageError);
-          toast.error(errorMsg);
-        }
-      }
-
-      // Delete from database
+      // Delete from database first
       const { error: deleteError } = await supabase
         .from('ads')
         .delete()
         .eq('id', id);
 
       if (deleteError) {
-        const dbErrorMsg = `Database Error: ${deleteError.message}, Code: ${deleteError.code}`;
-        console.error(dbErrorMsg, deleteError);
-        toast.error(dbErrorMsg);
+        console.error('Delete Error:', deleteError);
+        toast.error(`Delete failed: ${deleteError.message || 'Database error'}`);
         return;
       }
 
-      // Update local state only after successful deletion
+      // If database deletion successful, try to delete from storage
+      try {
+        const { data: storageList } = await supabase
+          .storage
+          .from('ads')
+          .list();
+
+        if (storageList) {
+          const matchingFile = storageList.find(file => file.name.includes(id));
+          if (matchingFile) {
+            await supabase.storage
+              .from('ads')
+              .remove([matchingFile.name]);
+          }
+        }
+      } catch (storageError) {
+        // Log storage error but don't block the process
+        console.warn('Storage cleanup failed:', storageError);
+      }
+
+      // Update local state
       setAds(prevAds => prevAds.filter(ad => ad.id !== id));
       toast.success('Ad deleted successfully');
 
     } catch (error: any) {
-      const finalError = `Delete failed: ${error?.message || error?.error_description || 'Unknown error'}`;
-      console.error('Full error details:', error);
-      console.error('Error stack:', error?.stack);
-      toast.error(finalError);
+      console.error('Delete operation failed:', error);
+      
+      // Network error handling
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        toast.error('Network error. Please check your internet connection.');
+      } else {
+        toast.error(error?.message || 'Failed to delete ad');
+      }
     } finally {
       setIsLoading(false);
     }
