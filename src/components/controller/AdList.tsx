@@ -58,21 +58,49 @@ const AdList: React.FC = () => {
     if (!window.confirm('Are you sure you want to delete this ad?')) {
       return;
     }
-    
+
     try {
-      const { error } = await supabase
+      // First, get the ad details to find the file path
+      const { data: ad, error: fetchError } = await supabase
+        .from('ads')
+        .select('url')
+        .eq('id', id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Delete from storage first
+      if (ad?.url) {
+        const filePath = ad.url.split('/').pop(); // Get filename from URL
+        if (filePath) {
+          const { error: storageError } = await supabase.storage
+            .from('ads')
+            .remove([filePath]);
+
+          if (storageError) {
+            console.error('Error deleting file:', storageError);
+            // Continue with database deletion even if storage deletion fails
+          }
+        }
+      }
+
+      // Delete from database
+      const { error: deleteError } = await supabase
         .from('ads')
         .delete()
         .eq('id', id);
-        
-      if (error) throw error;
-      
+
+      if (deleteError) throw deleteError;
+
       // Update local state
       setAds(ads.filter(ad => ad.id !== id));
-      
       toast.success('Ad deleted successfully');
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to delete ad');
+
+    } catch (error) {
+      console.error('Error deleting ad:', error);
+      toast.error(typeof error === 'object' && error !== null && 'message' in error 
+        ? (error.message as string) 
+        : 'Failed to delete ad');
     }
   };
 
