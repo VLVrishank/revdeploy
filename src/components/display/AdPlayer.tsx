@@ -165,12 +165,19 @@ const AdPlayer: React.FC = () => {
       if (error) throw error;
       
       if (data && data.length > 0) {
-        setAds(data);
+        // Ensure URLs are properly formatted
+        const processedData = data.map(ad => ({
+          ...ad,
+          url: ad.url.trim() // Ensure no whitespace
+        }));
+        setAds(processedData);
         setCurrentAdIndex(0);
+        console.log('Loaded ads:', processedData);
       } else {
         setAds([]);
       }
     } catch (error: any) {
+      console.error('Error fetching ads:', error);
       toast.error(error.message || 'Failed to fetch ads');
     } finally {
       setIsLoading(false);
@@ -419,6 +426,45 @@ const AdPlayer: React.FC = () => {
   const currentAd = contentType === 'ad' ? ads[currentAdIndex] : null;
   const currentNewsItem = contentType === 'news' && news.length > 0 ? news[currentNewsIndex] : null;
 
+  // Update the image rendering part with error handling and fallback
+  const renderAdContent = () => {
+    if (!contentType === 'ad' || !currentAd) return null;
+    
+    if (currentAd.type === 'video') {
+      return (
+        <video
+          ref={videoRef}
+          src={currentAd.url}
+          className="w-full h-full object-contain"
+          onEnded={handleVideoEnded}
+          autoPlay
+          controls={false}
+          muted={true}
+          onError={(e) => {
+            console.error('Video loading error:', e);
+            showEndQRAndMoveNext();
+          }}
+        />
+      );
+    } else {
+      return (
+        <div className="relative h-full overflow-hidden">
+          <img
+            src={currentAd.url}
+            alt={currentAd.title}
+            className="w-full h-full object-contain animate-subtle-zoom"
+            onError={(e) => {
+              console.error('Image loading error:', e.currentTarget.src);
+              // Try with a cache-busting parameter
+              e.currentTarget.src = `${currentAd.url}?t=${new Date().getTime()}`;
+            }}
+          />
+        </div>
+      );
+    }
+  };
+
+  // Replace the content rendering in the return statement
   return (
     <div className="relative h-screen bg-black overflow-hidden">
       {/* Add PingHandler component if rickshawId exists */}
@@ -459,28 +505,9 @@ const AdPlayer: React.FC = () => {
         <div className={`relative ${showDetails ? 'w-2/3' : 'w-full'} h-full transition-all duration-300 ease-in-out`}>
           <div className="relative h-full">
             {contentType === 'ad' && currentAd ? (
-              // Ad content
-              currentAd.type === 'video' ? (
-                <video
-                  ref={videoRef}
-                  src={currentAd.url}
-                  className="w-full h-full object-contain"
-                  onEnded={handleVideoEnded}
-                  autoPlay
-                  controls={false}
-                  muted={true} // Set to true to mute the video
-                />
-              ) : (
-                <div className="relative h-full overflow-hidden">
-                  <img
-                    src={currentAd.url}
-                    alt={currentAd.title}
-                    className="w-full h-full object-contain animate-subtle-zoom"
-                  />
-                </div>
-              )
+              renderAdContent()
             ) : (
-              // News content
+              // News content (unchanged)
               currentNewsItem && (
                 <div className="relative h-full overflow-hidden">
                   {/* Blurred background image */}
@@ -495,6 +522,10 @@ const AdPlayer: React.FC = () => {
                       src={currentNewsItem.image_url}
                       alt={currentNewsItem.title}
                       className="max-w-[80%] max-h-[60%] object-contain rounded-lg shadow-2xl"
+                      onError={(e) => {
+                        console.error('News image loading error');
+                        e.currentTarget.src = 'https://via.placeholder.com/800x600?text=News+Image+Unavailable';
+                      }}
                     />
                   </div>
                   
