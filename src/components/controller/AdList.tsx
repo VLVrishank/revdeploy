@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { Trash2, Eye, EyeOff } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { Ad, supabase } from '../../lib/supabase';
 import Button from '../ui/Button';
 import Toggle from '../ui/Toggle';
@@ -8,6 +8,7 @@ import Toggle from '../ui/Toggle';
 const AdList: React.FC = () => {
   const [ads, setAds] = useState<Ad[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAds();
@@ -20,9 +21,9 @@ const AdList: React.FC = () => {
         .from('ads')
         .select('*')
         .order('created_at', { ascending: false });
-        
+
       if (error) throw error;
-      
+
       setAds(data || []);
     } catch (error: any) {
       toast.error(error.message || 'Failed to fetch ads');
@@ -37,165 +38,134 @@ const AdList: React.FC = () => {
         .from('ads')
         .update({ is_active: !currentStatus })
         .eq('id', id);
-        
+
       if (error) throw error;
-      
-      // Update local state
-      setAds(ads.map(ad => {
-        if (ad.id === id) {
-          return { ...ad, is_active: !currentStatus };
-        }
-        return ad;
-      }));
-      
-      toast.success(`Ad ${!currentStatus ? 'activated' : 'deactivated'}`);
+
+      setAds(ads.map(ad => ad.id === id ? { ...ad, is_active: !currentStatus } : ad));
+      toast.success(Ad ${!currentStatus ? 'activated' : 'deactivated'});
     } catch (error: any) {
       toast.error(error.message || 'Failed to update ad status');
     }
   };
 
   const deleteAd = async (id: string) => {
-    if (!window.confirm('Are you sure you want to delete this ad?')) {
-      return;
-    }
+    if (!window.confirm('Are you sure you want to delete this ad?')) return;
+
+    setIsDeleting(id);
 
     try {
-      setIsLoading(true);
-
-      // Check Supabase connection first
-      const { error: healthError } = await supabase.from('ads').select('count');
-      if (healthError) {
-        toast.error('Database connection error. Please check your internet connection.');
+      const adToDelete = ads.find(ad => ad.id === id);
+      if (!adToDelete?.url) {
+        toast.error('Could not find ad URL.');
         return;
       }
 
-      // Delete from database first
-      const { error: deleteError } = await supabase
+      const url = adToDelete.url;
+      const filePath = url.split('/storage/v1/object/public/ads/')[1];
+
+      if (!filePath) {
+        toast.error('Invalid file path.');
+        return;
+      }
+
+      // Delete from storage
+      const { error: storageError } = await supabase.storage.from('ads').remove([filePath]);
+      if (storageError) {
+        console.error('Error deleting from storage:', storageError);
+        toast.error('Failed to delete video from storage');
+      }
+
+      // Delete from database
+      const { error: dbError } = await supabase
         .from('ads')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .select();
 
-      if (deleteError) {
-        console.error('Delete Error:', deleteError);
-        toast.error(`Delete failed: ${deleteError.message || 'Database error'}`);
+      if (dbError) {
+        toast.error('Failed to delete ad from database');
         return;
       }
 
-      // If database deletion successful, try to delete from storage
-      try {
-        const { data: storageList } = await supabase
-          .storage
-          .from('ads')
-          .list();
-
-        if (storageList) {
-          const matchingFile = storageList.find(file => file.name.includes(id));
-          if (matchingFile) {
-            await supabase.storage
-              .from('ads')
-              .remove([matchingFile.name]);
-          }
-        }
-      } catch (storageError) {
-        // Log storage error but don't block the process
-        console.warn('Storage cleanup failed:', storageError);
-      }
-
-      // Update local state
-      setAds(prevAds => prevAds.filter(ad => ad.id !== id));
+      // Update state
+      setAds(prev => prev.filter(ad => ad.id !== id));
       toast.success('Ad deleted successfully');
 
-    } catch (error: any) {
-      console.error('Delete operation failed:', error);
-      
-      // Network error handling
-      if (error instanceof TypeError && error.message === 'Failed to fetch') {
-        toast.error('Network error. Please check your internet connection.');
-      } else {
-        toast.error(error?.message || 'Failed to delete ad');
+      // Clean localStorage playlist
+      try {
+        const savedPlaylist = localStorage.getItem('adPlaylist');
+        if (savedPlaylist) {
+          const parsedPlaylist = JSON.parse(savedPlaylist);
+          const updatedPlaylist = parsedPlaylist.filter(
+            (item: any) => item.type !== 'ad' || item.adId !== id
+          );
+          localStorage.setItem('adPlaylist', JSON.stringify(updatedPlaylist));
+        }
+      } catch (err) {
+        console.error('Error updating localStorage:', err);
       }
+    } catch (err: any) {
+      console.error('Error deleting ad:', err);
+      toast.error(err.message || 'Failed to delete ad');
     } finally {
-      setIsLoading(false);
+      setIsDeleting(null);
     }
   };
 
   if (isLoading) {
-    return (
-      <div className="flex justify-center py-8">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-
-  if (ads.length === 0) {
-    return (
-      <div className="bg-white shadow-sm rounded-lg p-8 text-center">
-        <p className="text-gray-500">No ads have been uploaded yet</p>
-      </div>
-    );
+    return <div className="text-center py-6">Loading ads...</div>;
   }
 
   return (
-    <div className="bg-white shadow-sm rounded-lg overflow-hidden">
-      <div className="overflow-x-auto">
+    <div className="bg-white rounded shadow-sm">
+      {ads.length === 0 ? (
+        <p className="text-center py-6 text-gray-500">No ads uploaded.</p>
+      ) : (
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Title
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Type
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Duration
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Status
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
-              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Duration</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {ads.map((ad) => (
+            {ads.map(ad => (
               <tr key={ad.id}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                  {ad.title}
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{ad.title}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">{ad.type}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                  {ad.type === 'image' ? ${ad.duration} seconds : 'Full play'}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                    ad.type === 'video' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'
-                  }`}>
-                    {ad.type}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {ad.type === 'image' ? `${ad.duration} seconds` : 'Full play'}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
                   <Toggle
                     enabled={ad.is_active}
                     onChange={() => toggleAdStatus(ad.id, ad.is_active)}
                     label={ad.is_active ? 'Active' : 'Inactive'}
                   />
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <td className="px-6 py-4 whitespace-nowrap text-sm">
                   <Button
                     variant="danger"
                     onClick={() => deleteAd(ad.id)}
+                    disabled={isDeleting === ad.id}
                     className="inline-flex items-center"
                   >
-                    <Trash2 size={16} className="mr-1" />
-                    Delete
+                    {isDeleting === ad.id ? (
+                      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent mr-1"></span>
+                    ) : (
+                      <Trash2 size={16} className="mr-1" />
+                    )}
+                    {isDeleting === ad.id ? 'Deleting...' : 'Delete'}
                   </Button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
+      )}
     </div>
   );
 };
