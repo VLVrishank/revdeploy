@@ -42,7 +42,7 @@ const AdList: React.FC = () => {
       if (error) throw error;
 
       setAds(ads.map(ad => ad.id === id ? { ...ad, is_active: !currentStatus } : ad));
-      toast.success(Ad ${!currentStatus ? 'activated' : 'deactivated'});
+      toast.success(`Ad ${!currentStatus ? 'activated' : 'deactivated'}`);
     } catch (error: any) {
       toast.error(error.message || 'Failed to update ad status');
     }
@@ -137,7 +137,7 @@ const AdList: React.FC = () => {
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{ad.title}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">{ad.type}</td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  {ad.type === 'image' ? ${ad.duration} seconds : 'Full play'}
+                  {ad.type === 'image' ? `${ad.duration} seconds` : 'Full play'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
                   <Toggle
