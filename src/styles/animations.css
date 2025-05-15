@@ -1,0 +1,39 @@
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-slideIn {
+  animation: slideIn 0.3s ease-out forwards;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.9;
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s infinite;
+}
+
+.hover\:animate-none:hover {
+  animation: none;
+}
+
+.w-7\/10 {
+  width: 70%;
+}
+
+.w-3\/10 {
+  width: 30%;
+}
