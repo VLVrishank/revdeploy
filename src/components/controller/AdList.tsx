@@ -60,6 +60,8 @@ const AdList: React.FC = () => {
     }
 
     try {
+      setIsLoading(true); // Add loading state while deleting
+
       // First, get the ad details to find the file path
       const { data: ad, error: fetchError } = await supabase
         .from('ads')
@@ -67,40 +69,59 @@ const AdList: React.FC = () => {
         .eq('id', id)
         .single();
 
-      if (fetchError) throw fetchError;
+      if (fetchError) {
+        console.error('Error fetching ad details:', fetchError);
+        throw new Error('Failed to fetch ad details');
+      }
 
-      // Delete from storage first
+      // Delete from storage if URL exists
       if (ad?.url) {
-        const filePath = ad.url.split('/').pop(); // Get filename from URL
-        if (filePath) {
-          const { error: storageError } = await supabase.storage
-            .from('ads')
-            .remove([filePath]);
-
-          if (storageError) {
-            console.error('Error deleting file:', storageError);
-            // Continue with database deletion even if storage deletion fails
+        try {
+          const storageFileName = new URL(ad.url).pathname.split('/').pop();
+          if (storageFileName) {
+            await supabase.storage
+              .from('ads')
+              .remove([`ads/${storageFileName}`]);
           }
+        } catch (storageError) {
+          console.error('Storage deletion error:', storageError);
+          // Continue with database deletion even if storage deletion fails
         }
       }
 
-      // Delete from database
-      const { error: deleteError } = await supabase
-        .from('ads')
-        .delete()
-        .eq('id', id);
+      // Delete from database with retry mechanism
+      let retryCount = 0;
+      const maxRetries = 3;
+      
+      while (retryCount < maxRetries) {
+        try {
+          const { error: deleteError } = await supabase
+            .from('ads')
+            .delete()
+            .eq('id', id);
 
-      if (deleteError) throw deleteError;
-
-      // Update local state
-      setAds(ads.filter(ad => ad.id !== id));
-      toast.success('Ad deleted successfully');
-
+          if (!deleteError) {
+            // Success - update local state and break the retry loop
+            setAds(prevAds => prevAds.filter(ad => ad.id !== id));
+            toast.success('Ad deleted successfully');
+            break;
+          } else {
+            throw deleteError;
+          }
+        } catch (retryError) {
+          retryCount++;
+          if (retryCount === maxRetries) {
+            throw new Error('Failed to delete ad after multiple attempts');
+          }
+          // Wait before retrying (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+        }
+      }
     } catch (error) {
-      console.error('Error deleting ad:', error);
-      toast.error(typeof error === 'object' && error !== null && 'message' in error 
-        ? (error.message as string) 
-        : 'Failed to delete ad');
+      console.error('Error in delete operation:', error);
+      toast.error('Failed to delete ad. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
