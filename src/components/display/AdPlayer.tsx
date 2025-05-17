@@ -289,8 +289,8 @@ const AdPlayer: React.FC = () => {
 
   const toggleDetails = () => {
     // Only track analytics for ads, not news
-    if (!showDetails && contentType === 'ad') {
-      trackAdInteraction(ads[currentAdIndex].id, 'read_more_click');
+    if (contentType === 'ad' && currentAd) {
+      trackAdInteraction(currentAd.id, 'read_more_click');
     }
     setShowDetails(!showDetails);
   };
@@ -390,6 +390,13 @@ const AdPlayer: React.FC = () => {
   };
 
   const handleLogout = () => {
+    // Exit fullscreen if active
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(err => {
+        console.error('Error exiting fullscreen:', err);
+      });
+    }
+    
     // Clear rickshaw ID from localStorage
     localStorage.removeItem('rickshawId');
     localStorage.removeItem('deviceId');
@@ -427,8 +434,9 @@ const AdPlayer: React.FC = () => {
   const currentNewsItem = contentType === 'news' && news.length > 0 ? news[currentNewsIndex] : null;
 
   // Update the image rendering part with error handling and fallback
+  // Update the renderAdContent function to ensure images display properly in full screen
   const renderAdContent = () => {
-    if (!contentType === 'ad' || !currentAd) return null;
+    if (contentType !== 'ad' || !currentAd) return null;
     
     if (currentAd.type === 'video') {
       return (
@@ -448,16 +456,26 @@ const AdPlayer: React.FC = () => {
       );
     } else {
       return (
-        <div className="relative h-full overflow-hidden">
+        <div className="relative w-full h-full flex items-center justify-center">
           <img
             src={currentAd.url}
             alt={currentAd.title}
-            className="w-full h-full object-contain animate-subtle-zoom"
+            className="max-h-full max-w-full object-contain animate-subtle-zoom"
             onError={(e) => {
               console.error('Image loading error:', e.currentTarget.src);
-              // Try with a cache-busting parameter
-              e.currentTarget.src = `${currentAd.url}?t=${new Date().getTime()}`;
+              // Try with a cache-busting parameter and log more details
+              console.log('Attempting to reload with cache busting');
+              const originalSrc = currentAd.url;
+              e.currentTarget.src = `${originalSrc}?t=${new Date().getTime()}`;
+              
+              // Set a fallback if the image still fails to load after retry
+              e.currentTarget.onerror = () => {
+                console.error('Image still failed to load after cache busting');
+                e.currentTarget.src = 'https://via.placeholder.com/800x600?text=Image+Unavailable';
+                e.currentTarget.onerror = null; // Prevent infinite loop
+              };
             }}
+            style={{ maxHeight: '100vh' }}
           />
         </div>
       );
@@ -470,14 +488,14 @@ const AdPlayer: React.FC = () => {
       {/* Add PingHandler component if rickshawId exists */}
       {rickshawId && <PingHandler rickshawId={rickshawId} />}
       
-      {/* Logout button */}
+      {/* Logout button - made more visible */}
       <div className="absolute top-4 left-4 z-20">
         <button 
           onClick={handleLogout}
-          className="bg-black bg-opacity-50 backdrop-blur-sm text-white p-2 rounded-full hover:bg-opacity-70 transition-all"
+          className="bg-red-600 bg-opacity-80 backdrop-blur-sm text-white p-2 rounded-full hover:bg-red-700 transition-all shadow-lg"
           title="Logout"
         >
-          <LogOut size={16} />
+          <LogOut size={18} />
         </button>
       </div>
       
@@ -559,9 +577,9 @@ const AdPlayer: React.FC = () => {
             {/* Subtle tap indicator - only for ads, not for news */}
             {contentType === 'ad' && !showDetails && !showEndQR && (
               <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-                <div className="animate-pulse-subtle bg-white bg-opacity-20 backdrop-blur-sm rounded-full h-20 w-20 flex items-center justify-center">
-                  <div className="bg-white bg-opacity-40 rounded-full h-14 w-14 flex items-center justify-center">
-                    <p className="text-white font-medium text-sm">Tap</p>
+                <div className="animate-pulse bg-white bg-opacity-30 backdrop-blur-sm rounded-full h-24 w-24 flex items-center justify-center shadow-lg">
+                  <div className="bg-white bg-opacity-60 rounded-full h-16 w-16 flex items-center justify-center">
+                    <p className="text-black font-bold text-base">TAP</p>
                   </div>
                 </div>
               </div>
@@ -576,14 +594,22 @@ const AdPlayer: React.FC = () => {
                     <Button
                       onClick={toggleDetails}
                       variant="primary"
-                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg px-6 py-3 rounded-full shadow-lg flex items-center"
+                      className="bg-blue-600 hover:bg-blue-700 text-white font-semibold text-lg px-6 py-3 rounded-full shadow-lg flex items-center animate-bounce-subtle"
                     >
                       <Info size={20} className="mr-2" />
-                      Read More
+                      Tap for Details
                     </Button>
                   </div>
                   
                   <p className="text-gray-200 text-lg mb-2">{currentAd.description.substring(0, 80)}{currentAd.description.length > 80 ? '...' : ''}</p>
+                  
+                  {/* Added interactive hint */}
+                  <div className="mt-2 flex items-center">
+                    <div className="mr-2 bg-white bg-opacity-20 p-1 rounded-full">
+                      <Info size={16} className="text-white" />
+                    </div>
+                    <p className="text-gray-300 text-sm">Tap anywhere on screen for more information</p>
+                  </div>
                 </div>
               </div>
             )}
